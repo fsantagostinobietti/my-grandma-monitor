@@ -1,0 +1,4 @@
+FROM llava:13b-v1.6
+
+# sets the temperature [higher is more creative, lower is more coherent]
+PARAMETER temperature 0

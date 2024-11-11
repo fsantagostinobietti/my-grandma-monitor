@@ -1,0 +1,7 @@
+.env
+.auth_cache.json
+cli.session
+**/lab*
+__pycache__
+history/*.jpg
+img/
