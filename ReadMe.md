@@ -26,3 +26,4 @@ Xiomi Camera
 - https://home.miot-spec.com/spec/mijia.camera.v3
 - https://home.miot-spec.com/spec/chuangmi.camera.ipc009
 - Xiaomi Miot compunent For HomeAssistant - https://github.com/al-one/hass-xiaomi-miot
+- MiCloud Library for connecting to xiaomi cloud - https://github.com/Squachen/micloud

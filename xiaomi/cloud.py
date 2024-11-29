@@ -39,6 +39,7 @@ import locale
 import logging
 import os
 import random
+import secrets
 import string
 import time
 
@@ -190,6 +191,23 @@ class MiCloud:
 
         return None
 
+    async def devicepass(self, server: str, did: str):
+        assert server in SERVERS, "Wrong server: " + server
+        data = f'{{"did":"{did}"}}'
+        resp = await self.request_miot_api('/device/devicepass', data, server)
+        assert resp['code'] == 0, resp
+        return resp['result']
+    
+    async def get_tutk_info(self, server: str, did: str):
+        assert server in SERVERS, "Wrong server: " + server
+        # app_pubkey ??? - can be any random hex string (length>0). It is used somehow by api server to produce 'sign' response (64 length hex string)
+        app_pubkey = secrets.token_hex(32)
+        data = f'{{"app_pubkey":"{app_pubkey}","did":"{did}","support_vendors":"TUTK_CS2"}}'
+        resp = await self.request_miot_api('/v2/device/miss_get_vendor', data, server)
+        assert resp['code'] == 0, resp
+        return resp['result']
+
+
     async def request_miot_api(self, api, data = None, server: str = None):
         server = server or self.svr or 'cn'
         api_base = 'https://api.io.mi.com/app' if server == 'cn' \
@@ -222,14 +240,14 @@ class MiCloud:
             self._fail_count = 0
             resp = await r.json(content_type=None)
             if resp.get('message') == 'auth err':
-                _LOGGER.error("小米账号登录信息失效")
+                _LOGGER.error("Invalid Xiaomi credentials")
                 return None
             elif resp.get('code') != 0:
                 _LOGGER.error(f"Response of {api} from cloud: {resp}")
                 return resp
             else:
-                # 注意：此处成功只代表请求是成功的，但控制设备不一定成功，
-                # 取决于 result 里的 code
+                # Note: Success here only means that the request is successful, but the control device may not be successful.
+                # depends on the code in result
                 _LOGGER.info(f"Response of {api} from cloud: {resp}")
                 return resp
 
