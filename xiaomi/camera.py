@@ -159,6 +159,9 @@ async def _capture_frame_from_camera(camera_name: str) -> cv2.typing.MatLike|Non
 
         # get Device ID for specified camera
         devices = await mi_cloud.get_devices(EU)
+        if devices is None:
+            return None
+
         #print(devices)
         did = get_did(devices, device_name=camera_name)
         assert did is not None, 'device not found!'

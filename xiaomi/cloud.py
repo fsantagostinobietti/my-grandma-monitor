@@ -44,6 +44,9 @@ import string
 import time
 
 from aiohttp import ClientSession, ClientConnectorError
+from Crypto.Cipher import ARC4
+
+from token_extractor.token_extractor import XiaomiCloudConnector
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -180,14 +183,15 @@ class MiCloud:
 
             resp = await r.json(content_type=None)
             assert resp['code'] == 0, resp
+            assert 'result' in resp, resp
             return resp['result']['list']
 
         except asyncio.TimeoutError:
             _LOGGER.error("Timeout while loading MiCloud device list")
         except ClientConnectorError:
             _LOGGER.error("Failed loading MiCloud device list")
-        except:
-            _LOGGER.exception(f"Can't load devices list")
+        except Exception as ex:
+            _LOGGER.exception(f"Can't load devices list: {ex}")
 
         return None
 
@@ -309,6 +313,46 @@ class MiCloud:
         params = json.dumps(data, separators=(',', ':'))
         return await self.request_miot_api('/user/get_user_device_data', params, server)
 
+    async def devicepass(self, did: str, server: str):
+        """Unknown the meaning of this function"""
+        api = "/device/devicepass" 
+        # 'toSignAppData' every value is the same
+        params = {
+            "data": f'{{"did":"{did}","toSignAppData":"494c7dce85faf3293a9385e20a8ac8c0985d9440aba3a4361c6a60f11b07f77a"}}'
+            }
+        return await self.execute_api_call_encrypted(api, params, server)
+    
+    async def miss_get_vendor(self, did: str, server: str):
+        """TODO"""
+        api = '/v2/device/miss_get_vendor'
+        # 'app_pubkey' value changes the 'sign' of the response 
+        params = {
+            "data": f'{{"app_pubkey":"c538d719e8ee7babaaff4486789ed450a41849fe4994aa3c0a098827f4d59865","did":"{did}","support_vendors":"TUTK_CS2"}}'
+            }
+        return await self.execute_api_call_encrypted(api, params, server)
+    
+    async def execute_api_call_encrypted(self, api, params, server):
+        server = server or self.svr or 'cn'
+        api_base = 'https://api.io.mi.com/app' if server == 'cn' \
+            else f"https://{server}.api.io.mi.com/app"
+        url = api_base+api
+
+        headers = {
+            "User-Agent": UA,
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        cookies = {
+            "userId": self.auth['user_id'],
+            "serviceToken": self.auth['service_token'],
+        }
+        nonce = gen_nonce()
+        ssecurity = self.auth['ssecurity']
+        signed_nonce = gen_signed_nonce(ssecurity, nonce)
+        fields = generate_enc_params(url, "POST", signed_nonce, nonce, params, ssecurity)
+        r = await self.session.post(url, headers=headers, cookies=cookies, params=fields)
+        body = await r.text()
+        decoded = XiaomiCloudConnector.decrypt_rc4(signed_nonce, body)
+        return json.loads(decoded)
 
 def get_random_string(length: int):
     seq = string.ascii_uppercase + string.digits
@@ -328,7 +372,6 @@ def gen_signed_nonce(ssecret: str, nonce: str) -> str:
     m.update(base64.b64decode(nonce))
     return base64.b64encode(m.digest()).decode()
 
-
 def gen_signature(url: str, signed_nonce: str, nonce: str, data: str) -> str:
     """Request signature based on url, signed_nonce, nonce and data."""
     sign = '&'.join([url, signed_nonce, nonce, 'data=' + data])
@@ -336,3 +379,32 @@ def gen_signature(url: str, signed_nonce: str, nonce: str, data: str) -> str:
                          msg=sign.encode(),
                          digestmod=hashlib.sha256).digest()
     return base64.b64encode(signature).decode()
+
+def generate_enc_params(url, method, signed_nonce, nonce, params, ssecurity):
+    params['rc4_hash__'] = generate_enc_signature(url, method, signed_nonce, params)
+    for k, v in params.items():
+        params[k] = encrypt_rc4(signed_nonce, v)
+    params.update({
+        'signature': generate_enc_signature(url, method, signed_nonce, params),
+        'ssecurity': ssecurity,
+        '_nonce': nonce,
+    })
+    return params
+
+def generate_enc_signature(url: str, method: str, signed_nonce: str, params: dict):
+    signature_params = [str(method).upper(), url.split("com")[1].replace("/app/", "/")]
+    for k, v in params.items():
+        signature_params.append(f"{k}={v}")
+    signature_params.append(signed_nonce)
+    signature_string = "&".join(signature_params)
+    return base64.b64encode(hashlib.sha1(signature_string.encode('utf-8')).digest()).decode()
+
+def encrypt_rc4(password: str, payload: str) -> str:
+    r = ARC4.new(base64.b64decode(password))
+    r.encrypt(bytes(1024))
+    return base64.b64encode(r.encrypt(payload.encode())).decode()
+
+def decrypt_rc4(password: str, payload: str) -> bytes:
+    r = ARC4.new(base64.b64decode(password))
+    r.encrypt(bytes(1024))
+    return r.encrypt(base64.b64decode(payload))
